@@ -1,0 +1,117 @@
+using UnityEngine;
+
+/// <summary>
+/// Улучшенное следование камеры за игроком с плавной обработкой дэшей.
+/// </summary>
+public class CameraFollow : MonoBehaviour
+{
+    [Header("Настройки")]
+    [SerializeField] private Transform target;
+    [SerializeField] private Vector3 offset = new Vector3(0, 8, -12);
+    [SerializeField] private float smoothSpeed = 5f;
+    [SerializeField] private bool lookAtTarget = true;
+
+    [Header("Advanced Settings")]
+    [SerializeField] private float dashSmoothSpeed = 2f; // Более плавное движение во время дэша
+    [SerializeField] private float positionChangeThreshold = 3f; // Порог для определения резкого изменения позиции
+    [SerializeField] private float maxInterpolationSpeed = 15f; // Максимальная скорость интерполяции
+
+    private Vector3 lastTargetPosition;
+    private bool isRapidMovement = false;
+    private float rapidMovementTimer = 0f;
+    private PlayerAttract playerAttract;
+
+    private void Start()
+    {
+        if (target != null)
+        {
+            lastTargetPosition = target.position;
+        }
+
+        // Ищем PlayerAttract для отслеживания дэшей
+        GameObject player = GameObject.FindWithTag("Player");
+        if (player != null)
+        {
+            playerAttract = player.GetComponent<PlayerAttract>();
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (target == null)
+        {
+            // Находим игрока если цель не задана
+            GameObject player = GameObject.FindWithTag("Player");
+            if (player != null)
+            {
+                target = player.transform;
+                lastTargetPosition = target.position;
+            }
+            else
+            {
+                return;
+            }
+        }
+
+        // Проверяем на резкое изменение позиции (дэш)
+        float positionChange = Vector3.Distance(target.position, lastTargetPosition);
+        bool isDashing = (playerAttract != null && playerAttract.IsDashing()) ||
+                         (positionChange > positionChangeThreshold && Time.deltaTime < 0.1f);
+
+        if (isDashing)
+        {
+            isRapidMovement = true;
+            rapidMovementTimer = 0.3f; // Время плавной интерполяции после дэша
+        }
+
+        // Используем более плавную скорость во время/после дэша
+        float currentSmoothSpeed = isRapidMovement ? dashSmoothSpeed : smoothSpeed;
+
+        // Плавно уменьшаем флаг быстрого движения
+        if (isRapidMovement)
+        {
+            rapidMovementTimer -= Time.deltaTime;
+            if (rapidMovementTimer <= 0f)
+            {
+                isRapidMovement = false;
+            }
+        }
+
+        // Вычисляем желаемую позицию
+        Vector3 desiredPosition = target.position + offset;
+
+        // Ограничиваем максимальное изменение позиции для плавности
+        Vector3 positionDelta = desiredPosition - transform.position;
+        float maxDelta = maxInterpolationSpeed * Time.deltaTime;
+        if (positionDelta.magnitude > maxDelta)
+        {
+            positionDelta = positionDelta.normalized * maxDelta;
+            desiredPosition = transform.position + positionDelta;
+        }
+
+        // Интерполируем позицию
+        Vector3 smoothedPosition = Vector3.Lerp(transform.position, desiredPosition, currentSmoothSpeed * Time.deltaTime);
+        transform.position = smoothedPosition;
+
+        // Смотрим на цель (только если нет быстрого движения)
+        if (lookAtTarget && !isRapidMovement)
+        {
+            transform.LookAt(target.position + Vector3.up * 2f);
+        }
+        else if (lookAtTarget)
+        {
+            // Более плавное вращение во время дэша
+            Quaternion targetRotation = Quaternion.LookRotation(target.position + Vector3.up * 2f - transform.position);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 5f * Time.deltaTime);
+        }
+
+        // Сохраняем позицию для следующего кадра
+        lastTargetPosition = target.position;
+    }
+
+    public void SetTarget(Transform newTarget)
+    {
+        target = newTarget;
+        lastTargetPosition = target != null ? target.position : Vector3.zero;
+    }
+}
